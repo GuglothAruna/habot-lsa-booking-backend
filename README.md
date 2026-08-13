@@ -7,19 +7,9 @@
 
 ## Project Overview
 
-A production-oriented Django REST backend prototype for an LSA (Learning Support Assistant) service-booking platform.
+A production-oriented Django REST backend prototype for an LSA service booking platform.
 
-The backend connects parents with Learning Support Assistants (LSAs) and provides APIs for:
-
-- LSA search by skill
-- Booking creation and validation
-- Double-booking prevention
-- Payment state management
-- Payment webhook processing
-- Mock external payment integration
-- Automated testing
-- OpenAPI/Swagger documentation
-- GitHub Actions CI
+The platform connects parents with Learning Support Assistants (LSAs) for children with learning difficulties.
 
 ## Technology Stack
 
@@ -29,7 +19,6 @@ The backend connects parents with Learning Support Assistants (LSAs) and provide
 - PostgreSQL 18
 - Django ORM
 - pytest
-- pytest-django
 - requests
 - drf-spectacular
 - GitHub Actions
@@ -37,18 +26,21 @@ The backend connects parents with Learning Support Assistants (LSAs) and provide
 ## Architecture
 
 ```text
-                    Client
+Parent
+  |
+  v
+Django REST API
+  |
+  +-------------------+
+  |                   |
+  v                   v
+LSA Search         Booking API
                       |
                       v
-               Django REST API
+                  PostgreSQL
                       |
-        +-------------+-------------+
-        |             |             |
-        v             v             v
-    LSA Search     Booking       Payment
-                     API          Webhook
-                       |             |
-                       +------v------+
-                              |
-                              v
-                         PostgreSQL
+                      v
+                   Payment
+                      |
+                      v
+              Payment Webhook
