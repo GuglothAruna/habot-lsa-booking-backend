@@ -1,135 +1,399 @@
-# LSA Booking Backend
+LSA Booking Backend
 
-Production-oriented Python backend prototype for an LSA service booking platform.
+Author: Gugloth Aruna
+Email: arunagugloth7@gmail.com
+GitHub: https://github.com/GuglothAruna/habot-lsa-booking-backend
 
-## Overview
+1. Project Overview
 
-This backend connects parents with Learning Support Assistants (LSAs) and provides APIs for LSA search, booking, payment processing, and payment webhook handling.
+A production-oriented Django REST backend prototype for an LSA (Learning Support Assistant) service-booking platform.
 
-## Technology Stack
+The backend connects parents with Learning Support Assistants (LSAs) and provides APIs for LSA search, booking creation, payment processing, and payment webhook handling.
 
-- Python 3.13
-- Django 5.2
-- Django REST Framework
-- PostgreSQL 18
-- Django ORM
-- pytest
-- requests
-- OpenAPI / Swagger
-- GitHub Actions
+Key capabilities
 
-## Architecture
+LSA search by skill
+
+Booking creation and validation
+
+Double-booking prevention
+
+Payment state management
+
+Payment webhook processing
+
+Mock external payment integration
+
+Automated testing
+
+OpenAPI/Swagger documentation
+
+GitHub Actions CI
+
+2. Technology Stack
+
+Python 3.13
+
+Django 5.2
+
+Django REST Framework
+
+PostgreSQL 18
+
+Django ORM
+
+pytest / pytest-django
+
+requests
+
+drf-spectacular (OpenAPI / Swagger)
+
+GitHub Actions
+
+3. Architecture
+
+Client
+   |
+   v
+Django REST API
+   |
+   +-----------------------+
+   |                       |
+   v                       v
+LSA Search             Booking API
+                           |
+                           v
+                       PostgreSQL
+                           |
+                           v
+                        Payment
+                           |
+                           v
+                    Payment Webhook
+
+The backend is divided into focused Django applications:
+
+accounts — parent data
+
+lsas — LSA profiles and skills
+
+bookings — booking validation and overlap protection
+
+payments — payment records, mock gateway client, and webhook processing
+
+config — Django configuration and URL routing
+
+4. Project Structure
+
+pythonbackend/
+├── .github/
+│   └── workflows/
+│       └── tests.yml
+├── accounts/
+├── bookings/
+├── config/
+├── lsas/
+├── payments/
+├── conftest.py
+├── manage.py
+├── pytest.ini
+├── requirements.txt
+├── README.md
+└── .env.example
+
+The real .env file and .venv/ directory are intentionally excluded from Git.
+
+5. Database Design
+
+Main entities
 
 Parent
-↓
-Django REST API
-↓
-LSA Search / Booking / Payment Webhook
-↓
-PostgreSQL
 
-## Main APIs
+LSAProfile
 
-### LSA Search
+Skill
 
-`GET /api/v1/lsas/search/?skill=Autism`
+BookingRequest
 
-### Create Booking
+Payment
 
-`POST /api/v1/bookings/`
+Relationships
 
-### Payment Webhook
+Parent 1 -------- N BookingRequest N -------- 1 LSAProfile
+                                      |
+                                      1
+                                      |
+                                      1
+                                   Payment
 
-`POST /api/v1/payments/webhook/`
+LSAProfile N -------- N Skill
 
-### API Documentation
+The schema uses foreign keys, a one-to-one payment relationship, timestamps, status fields, and indexes for common lookup and booking-validation patterns.
 
-`GET /api/docs/`
+Database changes are managed with Django migrations.
 
-## Database Design
+6. API Endpoints
 
-Main entities:
+Search available LSAs
 
-- Parent
-- LSAProfile
-- Skill
-- BookingRequest
-- Payment
+GET /api/v1/lsas/search/?skill=Autism
 
-Relationships:
+Returns active LSAs filtered by skill.
 
-- Parent → BookingRequest
-- LSAProfile → BookingRequest
-- LSAProfile ↔ Skill
-- BookingRequest → Payment
+Create a booking
 
-## Booking Protection
+POST /api/v1/bookings/
 
-The booking API validates:
+Validates the requested booking and creates it in PENDING state.
 
-- Parent
-- Active LSA
-- Future start time
-- End time after start time
-- Overlapping sessions
+Validation includes:
 
-Overlapping sessions return HTTP 409 Conflict.
+Parent exists
 
-Booking creation uses a database transaction and row locking to improve concurrency safety.
+LSA exists and is active
 
-## N+1 Query Optimization
+Start time is in the future
 
-LSA search uses Django ORM `prefetch_related()` for related skills.
+End time is after start time
 
-This prevents a separate database query from being executed for every returned LSA.
+Requested time does not overlap an active booking for the same LSA
 
-Automated tests verify that the query count remains bounded.
+A conflicting booking returns:
 
-## Payment Flow
+409 Conflict
 
-New bookings start as:
+Payment webhook
 
-`PENDING`
+POST /api/v1/payments/webhook/
 
-Payment success:
+Receives payment success/failure events and updates payment and booking states atomically.
 
-`PENDING → CONFIRMED`
+API documentation
 
-Payment failure:
+http://127.0.0.1:8000/api/docs/
 
-`PENDING → PAYMENT_FAILED`
+Swagger/OpenAPI documentation is generated with drf-spectacular.
 
-The webhook uses transactional processing and duplicate-success protection.
+7. Double-Booking Protection
 
-## Testing
+Booking creation runs inside a database transaction and locks the selected LSA row before checking for an overlapping booking.
 
-The project contains automated pytest coverage for:
+The overlap condition is:
 
-- LSA search
-- Skill filtering
-- N+1 query behavior
-- Successful booking
-- Invalid booking
-- Double-booking prevention
-- Payment success
-- Invalid webhook
-- Duplicate webhook
+existing.start_time < requested.end_time
+AND
+existing.end_time > requested.start_time
 
-## CI/CD
+This allows back-to-back sessions while rejecting overlapping sessions.
 
-GitHub Actions automatically:
+Example:
 
-1. Starts PostgreSQL
-2. Installs dependencies
-3. Runs Django checks
-4. Runs database migrations
-5. Runs pytest
+Existing: 10:00 -------- 11:00
+New:             10:30 -------- 11:30
+                     ❌ Conflict
 
-## Local Setup
+Existing: 10:00 -------- 11:00
+New:                          11:00 -------- 12:00
+                                   ✅ Allowed
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+8. N+1 Query Optimization
+
+The LSA search uses:
+
+prefetch_related("skills")
+
+to fetch related skill data efficiently instead of executing one additional database query for every returned LSA.
+
+An automated test measures the query count and verifies that it remains bounded as the number of LSAs increases.
+
+9. Payment and Webhook Flow
+
+Booking created
+      |
+      v
+Booking PENDING
+      |
+      v
+Payment PENDING
+      |
+      +------ success ------> Payment SUCCESS
+      |                           |
+      |                           v
+      |                     Booking CONFIRMED
+      |
+      +------ failure ------> Payment FAILED
+                                  |
+                                  v
+                         Booking PAYMENT_FAILED
+
+The payment integration uses Python requests, a timeout, exception handling, and logging.
+
+The webhook updates payment and booking state inside a database transaction.
+
+Duplicate successful webhook events are handled safely so an already-processed successful payment is not applied again.
+
+10. Automated Testing
+
+The project contains 9 pytest tests covering:
+
+LSA search success
+
+LSA skill filtering
+
+N+1 query behavior
+
+Successful booking
+
+Invalid booking time
+
+Double-booking prevention
+
+Payment success and booking confirmation
+
+Invalid webhook payload
+
+Duplicate webhook handling
+
+Run:
+
+python -m pytest -v
+
+Expected local result:
+
+9 passed
+
+11. Continuous Integration
+
+GitHub Actions runs on pushes and pull requests.
+
+The workflow:
+
+Starts a temporary PostgreSQL service
+
+Installs the Python dependencies
+
+Runs Django system checks
+
+Runs Django migrations
+
+Runs the pytest suite
+
+The workflow is stored at:
+
+.github/workflows/tests.yml
+
+12. Local Setup
+
+Prerequisites
+
+Python 3.13
+
+PostgreSQL 18
+
+Git
+
+Create the virtual environment
+
+py -3.13 -m venv .venv
+
+Activate it:
+
+.venv\Scripts\Activate.ps1
+
+Install dependencies
+
+python -m pip install -r requirements.txt
+
+Create the PostgreSQL database
+
+Create a PostgreSQL database named:
+
+habot_lsa_db
+
+Use the local PostgreSQL postgres user and your own PostgreSQL password.
+
+Configure environment variables
+
+Create .env from .env.example and provide your local secrets.
+
+Example:
+
+POSTGRES_DB=habot_lsa_db
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password_here
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+
+SECRET_KEY=change_me
+DEBUG=True
+ALLOWED_HOSTS=127.0.0.1,localhost
+
+DEFAULT_SESSION_FEE=500.00
+
+PAYMENT_GATEWAY_URL=http://127.0.0.1:8000/mock-payment/charge/
+
+Never commit .env.
+
+Run migrations
+
 python manage.py migrate
+
+Run the development server
+
 python manage.py runserver
+
+Open Swagger
+
+http://127.0.0.1:8000/api/docs/
+
+13. Security
+
+Database credentials are loaded from environment variables.
+
+.env is excluded from Git.
+
+.venv/ is excluded from Git.
+
+.env.example contains placeholders only.
+
+CI uses a separate temporary PostgreSQL configuration.
+
+Real credentials must never be committed to the public repository.
+
+14. Final API Summary
+
+Method
+
+Endpoint
+
+Purpose
+
+GET
+
+/api/v1/lsas/search/
+
+Search active LSAs by skill
+
+POST
+
+/api/v1/bookings/
+
+Create a validated booking
+
+POST
+
+/api/v1/payments/webhook/
+
+Process payment events
+
+GET
+
+/api/docs/
+
+OpenAPI/Swagger documentation
+
+15. Repository
+
+Public repository:
+
+https://github.com/GuglothAruna/habot-lsa-booking-backend
